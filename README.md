@@ -33,6 +33,42 @@ exec(open("/path/to/freecad_bridge.py").read())
 
 This starts an HTTP server on port 50006 inside FreeCAD.
 
+#### Auto-start the bridge on every FreeCAD launch (optional)
+
+To avoid pasting into the console each session, register the bridge as a
+startup script. FreeCAD scans every `Mod/` directory at launch and runs each
+`InitGui.py` **once the GUI is up** — which is exactly what the bridge needs
+(it imports `FreeCADGui` and arms a `QtCore.QTimer`, neither of which exists at
+the earlier App-init / `user.py` stage).
+
+Create `<user-app-data>/Mod/FreeCADBridge/InitGui.py`, where `<user-app-data>`
+is what `FreeCAD.getUserAppDataDir()` prints in the Python console (e.g. on
+macOS `~/Library/Application Support/FreeCAD/v1-1/`):
+
+```python
+import FreeCAD
+
+_BRIDGE = "/path/to/freecad_bridge.py"
+try:
+    # Run in a dedicated namespace dict (globals IS locals). FreeCAD exec()'s
+    # InitGui.py with *separate* globals/locals dicts; a bare exec() here would
+    # inherit that split, so the bridge's module-level names (BRIDGE_HOST, ...)
+    # would land in locals while its functions resolve __globals__ — raising
+    # NameError at call time. One shared dict avoids that.
+    ns = {"__name__": "freecad_bridge", "__file__": _BRIDGE}
+    with open(_BRIDGE) as f:
+        exec(compile(f.read(), _BRIDGE, "exec"), ns)
+    FreeCAD.Console.PrintMessage("freecad-mcp bridge started from InitGui.py\n")
+except Exception as e:
+    FreeCAD.Console.PrintError("freecad-mcp bridge autostart failed: %s\n" % e)
+```
+
+Fully quit and reopen FreeCAD, then confirm the bridge is listening:
+
+```bash
+lsof -nP -iTCP:50006 -sTCP:LISTEN
+```
+
 ### 3. Start the MCP server
 
 ```bash
